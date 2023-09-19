@@ -49,8 +49,55 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/conf.d/
               readOnly: true
+          terminationMessagePolicy: FallbackToLogsOnError
+        - name: config-reload
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              touch /tmp/last-reload-timestamp
+              while sleep "${CONFIG_RELOAD_INTERVAL}"; do
+                updated_configs=$(find /etc/nginx/conf.d/ -type f -newer /tmp/last-reload-timestamp)
+                if [ $(echo -n "${updated_configs}" | wc -l) -gt 0 ]; then
+                  echo "[$(date --rfc-3339=s)] Detected updated configuration files:"
+                  echo "${updated_configs}"
+                  echo "Validating nginx configuration ..."
+                  nginx -t
+                  echo "Reloading nginx ..."
+                  nginx -s reload
+                  echo "OK"
+                  touch /tmp/last-reload-timestamp
+                fi
+              done
+          env:
+            - name: CONFIG_RELOAD_INTERVAL
+              value: {{ .Values.configReloadInterval | quote }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: false
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/
+              readOnly: true
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          resources:
+            requests:
+              memory: 1Mi
+              cpu: 1m
+            limits:
+              memory: 10Mi
+              cpu: 10m
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          terminationMessagePolicy: FallbackToLogsOnError
+
         ## TODO: add vector sidecar
-        ## TODO: sidecar for config reload
+
+      # required for sending signals between pods
+      shareProcessNamespace: true
+
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

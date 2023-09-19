@@ -20,6 +20,8 @@ websites:
     bucket: foobar-example-com
     endpoint: https://s3.example.com
 
+configReloadInterval: 60
+
 podAnnotations: {}
 
 podSecurityContext:
