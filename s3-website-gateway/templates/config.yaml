@@ -9,6 +9,22 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 data:
+  # a default server that just serves the healthcheck endpoint
+  default.conf: |
+    server {
+        listen 8080 default_server;
+
+        location /_/healthz {
+            access_log off;
+            error_log /dev/stderr error;
+            return 200;
+        }
+
+        location / {
+            return 401;
+        }
+    }
+
   {{- range .Values.websites }}
   {{ .name }}.conf: |
     server {
@@ -22,16 +38,9 @@ data:
 
         # do not serve hidden files (beginning with a period)
         location ~ /\. {
-            error_log off;
+            error_log /dev/null;
             log_not_found off;
             deny all;
-        }
-
-        # health probes should not be affected by backend status
-        location /_/healthz {
-            access_log off;
-            error_log /dev/stderr error;
-            return 200;
         }
 
         set $s3_bucket "{{ .bucket }}";

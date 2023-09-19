@@ -23,6 +23,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: nginx
+          command: ["nginx", "-g", "daemon off;"]
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -45,6 +46,9 @@ spec:
             - name: tmp
               mountPath: /tmp
               readOnly: false
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/
+              readOnly: true
         ## TODO: add vector sidecar
         ## TODO: sidecar for config reload
       {{- with .Values.nodeSelector }}
@@ -62,3 +66,6 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: {{ include "s3-website-gateway.fullname" . }}-nginx-config
