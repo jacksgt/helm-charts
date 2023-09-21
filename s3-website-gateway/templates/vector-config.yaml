@@ -1,0 +1,73 @@
+{{- if .Values.logCollector.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "s3-website-gateway.fullname" . }}-vector-config
+  labels:
+    {{- include "s3-website-gateway.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+stringData:
+  # https://vector.dev/docs/reference/configuration/
+  vector.toml: |
+    data_dir = "/tmp/vector"
+
+    # Read all *.log files from the /logs directory
+    # https://vector.dev/docs/reference/configuration/sources/file/
+    [sources.file_logs]
+    type = "file"
+    include = [ "/tmp/logs/*.log" ]
+    read_from = "end" # avoids duplicate entries when the vector container restarts
+
+    # Parse the logs according to the "combined" log format
+    # https://vector.dev/docs/reference/vrl/examples/#parse_apache_log
+    [transforms.parse_logs]
+    type = "remap"
+    inputs = [ "file_logs" ]
+    source = """
+    . |= parse_apache_log!(.message, format: "combined")
+    .timestamp = to_unix_timestamp!(.timestamp)
+    del(.file)
+    del(.source_type)
+    """
+
+    # Output logs as JSON to stdout
+    # https://vector.dev/docs/reference/configuration/sinks/console/
+    [sinks.stdout]
+    type = "console"
+    target = "stdout"
+    inputs = [ "parse_logs" ]
+    encoding.codec = "json"
+
+  {{ with .Values.logCollector.loki }}
+    {{- if .enabled }}
+    # Push logs as JSON to Loki endpoint
+    # https://vector.dev/docs/reference/configuration/sinks/loki/
+    [sinks.loki]
+    type = "loki"
+    inputs = ["parse_logs"]
+    endpoint = {{ .url | quote }}
+    labels.app = "{{$.Release.Name}}"
+    labels.namespace = "{{$.Release.Namespace}}"
+    labels.host = "{{`{{ .host }}`}}"
+    labels.status = "{{`{{ .status }}`}}"
+    out_of_order_action = "accept"
+    {{- with .tenant_id }}
+    tenant_id = "{{ . }}"
+    {{- end }}
+    compression = "snappy"
+    encoding.codec = "json"
+    {{- if .password }}
+    auth.strategy = "basic"
+    auth.user = "{{ .username }}"
+    auth.password = "{{ .password }}"
+    {{- end }}
+    {{- if .token }}
+    auth.strategy = "bearer"
+    auth.token = "{{ .token }}"
+    {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}

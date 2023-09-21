@@ -26,7 +26,7 @@ spec:
           command: ["nginx", "-g", "daemon off;"]
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -56,6 +56,7 @@ spec:
             - -c
             - |
               set -e
+              mkdir /tmp/logs /tmp/vector
               touch /tmp/last-reload-timestamp
               while sleep "${CONFIG_RELOAD_INTERVAL}"; do
                 updated_configs=$(find /etc/nginx/conf.d/ -type f -newer /tmp/last-reload-timestamp)
@@ -82,7 +83,7 @@ spec:
               readOnly: true
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           resources:
             requests:
               memory: 1Mi
@@ -93,7 +94,53 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           terminationMessagePolicy: FallbackToLogsOnError
 
-        ## TODO: add vector sidecar
+        - name: log-rotate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          # the following command resets the log file once per hour
+          command:
+          - sh
+          - -xc
+          - 'while sleep ${LOG_ROTATE_INTERVAL}; do rm -f /tmp/logs/access.log; nginx -s reload; done'
+          volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          env:
+          - name: LOG_ROTATE_INTERVAL
+            value: {{ .Values.logRotateInterval | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          resources:
+            requests:
+              memory: 1Mi
+              cpu: 1m
+            limits:
+              memory: 10Mi
+              cpu: 10m
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          terminationMessagePolicy: FallbackToLogsOnError
+
+        {{- if .Values.logCollector.enabled }}
+        - name: vector
+          image: {{ .Values.logCollector.image }}
+          env:
+            - name: VECTOR_CONFIG_DIR
+              value: /etc/vector
+            # currently somewhat broken on k8s, see https://github.com/vectordotdev/vector/issues/15514
+            - name: VECTOR_WATCH_CONFIG
+              value: "false"
+          volumeMounts:
+          - name: vector-config
+            mountPath: /etc/vector
+            readOnly: true
+          - name: tmp
+            mountPath: /tmp
+            readOnly: false
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          terminationMessagePolicy: FallbackToLogsOnError
+          # TODO: add livenessProbe for vector
+        {{- end }}
 
       # required for sending signals between pods
       shareProcessNamespace: true
@@ -110,9 +157,15 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      enableServiceLinks: false
       volumes:
         - name: tmp
           emptyDir: {}
         - name: nginx-config
           configMap:
             name: {{ include "s3-website-gateway.fullname" . }}-nginx-config
+        {{- if .Values.logCollector.enabled }}
+        - name: vector-config
+          secret:
+            secretName: {{ include "s3-website-gateway.fullname" . }}-vector-config
+        {{- end }}

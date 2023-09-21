@@ -16,7 +16,6 @@ data:
 
         location /_/healthz {
             access_log off;
-            error_log /dev/stderr error;
             return 200;
         }
 
@@ -33,8 +32,11 @@ data:
 
         index index.html index.htm;
 
-        # TODO: redirect logs to another file, stream to logging server
-        # access_log off;
+        {{- if $.Values.logCollector.enabled }}
+        access_log /tmp/logs/access.log combined;
+        {{- else }}
+        access_log /dev/stdout combined;
+        {{- end }}
 
         # do not serve hidden files (beginning with a period)
         location ~ /\. {

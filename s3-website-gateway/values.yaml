@@ -4,11 +4,12 @@
 
 replicas: 1
 
+# TODO: refactor values into nginx
+
 image:
   repository: ghcr.io/nginxinc/nginx-unprivileged
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "1.25"
 
 nameOverride: ""
 fullnameOverride: ""
@@ -20,7 +21,17 @@ websites:
     bucket: foobar-example-com
     endpoint: https://s3.example.com
 
-configReloadInterval: 60
+configReloadInterval: 60 # in seconds
+logRotateInterval: 3600 # in seconds
+
+logCollector:
+  enabled: true
+  image: docker.io/timberio/vector:0.32.2-alpine
+  loki:
+    enabled: true
+    url: "http://my-loki:8080"
+    # username: ""
+    # password: ""
 
 podAnnotations: {}
 
